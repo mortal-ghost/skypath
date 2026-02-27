@@ -17,6 +17,7 @@ import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -141,6 +142,11 @@ public class InMemoryFlightDataSource implements FlightDataSource {
     // ======= FlightDataSource interface implementation =======
 
     @Override
+    public List<Flight> getFlightsFrom(String airportCode, LocalDate date) {
+        return getFlightsFrom(airportCode, date, date);
+    }
+
+    @Override
     public List<Flight> getFlightsFrom(String airportCode, LocalDate fromDate, LocalDate toDate) {
         List<Flight> flights = flightsByOrigin.getOrDefault(airportCode, Collections.emptyList());
         return filterByDateRange(flights, fromDate, toDate);
@@ -152,6 +158,20 @@ public class InMemoryFlightDataSource implements FlightDataSource {
         String key = routeKey(origin, destination);
         List<Flight> flights = flightsByRoute.getOrDefault(key, Collections.emptyList());
         return filterByDateRange(flights, fromDate, toDate);
+    }
+
+    @Override
+    public List<Flight> getConnectingFlights(String airportCode,
+            ZonedDateTime earliestDepartureUtc, ZonedDateTime latestDepartureUtc) {
+        List<Flight> flights = flightsByOrigin.getOrDefault(airportCode, Collections.emptyList());
+        return flights.stream()
+                .filter(f -> {
+                    ZonedDateTime depUtc = f.getDepartureUtc();
+                    return depUtc != null
+                            && !depUtc.isBefore(earliestDepartureUtc)
+                            && !depUtc.isAfter(latestDepartureUtc);
+                })
+                .collect(Collectors.toList());
     }
 
     @Override

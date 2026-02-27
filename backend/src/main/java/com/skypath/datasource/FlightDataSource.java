@@ -4,6 +4,7 @@ import com.skypath.model.Airport;
 import com.skypath.model.Flight;
 
 import java.time.LocalDate;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -15,6 +16,16 @@ import java.util.Optional;
  * an external API, a cache layer, or any combination.
  */
 public interface FlightDataSource {
+
+    /**
+     * Get all flights departing from an airport on a specific date.
+     * The date is based on the flight's local departure date.
+     *
+     * @param airportCode IATA airport code (e.g., "JFK")
+     * @param date        departure date
+     * @return flights departing from the airport on the given date
+     */
+    List<Flight> getFlightsFrom(String airportCode, LocalDate date);
 
     /**
      * Get all flights departing from an airport within a date range.
@@ -39,6 +50,20 @@ public interface FlightDataSource {
      */
     List<Flight> getDirectFlights(String origin, String destination,
             LocalDate fromDate, LocalDate toDate);
+
+    /**
+     * Get connecting flights departing from an airport within a UTC time window.
+     * Used by the search algorithm to fetch only flights that fall within
+     * valid layover bounds (e.g., 45–360min for domestic, 90–360min for
+     * international).
+     *
+     * @param airportCode          IATA airport code
+     * @param earliestDepartureUtc earliest valid departure time (inclusive)
+     * @param latestDepartureUtc   latest valid departure time (inclusive)
+     * @return flights departing within the given UTC time window
+     */
+    List<Flight> getConnectingFlights(String airportCode,
+            ZonedDateTime earliestDepartureUtc, ZonedDateTime latestDepartureUtc);
 
     /**
      * Look up an airport by its IATA code.
