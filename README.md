@@ -7,7 +7,7 @@ A full-stack flight search application that finds optimal itineraries with multi
 ```bash
 # Clone and run with Docker
 git clone <your-repo>
-cd flight-search-system
+cd skypath
 docker-compose up
 ```
 
@@ -187,9 +187,6 @@ Unit tests in `SearchServiceImplTest` cover:
 - Add a database-backed `FlightDataSource` implementation (PostgreSQL with proper indexes)
 - Add result caching with TTL
 - Add sort-by-price option on the frontend
-- Add a flight map visualization
-- Add accessibility improvements (ARIA labels, keyboard navigation throughout)
-- Add E2E tests with Playwright
 
 ---
 
