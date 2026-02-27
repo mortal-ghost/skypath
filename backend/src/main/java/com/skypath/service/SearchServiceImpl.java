@@ -12,22 +12,36 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
  * Core flight search service implementing a recursive depth-limited DFS.
- * 
- * The algorithm generalizes to N hops via the maxStops parameter.
- * Flights are fetched lazily per-airport as the recursion descends, so the
- * search never requires the full dataset in memory at once.
+ *
+ * <p>
+ * Algorithm overview:
+ * <ol>
+ * <li>Fetch all flights departing from the origin on the search date.</li>
+ * <li>Separate direct flights to the destination — add them to results
+ * immediately.</li>
+ * <li>For remaining flights (to intermediate airports), run DFS.</li>
+ * <li>At each DFS node, query connecting flights using a precise UTC time
+ * window
+ * (min/max layover for domestic/international), reducing unnecessary data
+ * fetch.</li>
+ * </ol>
  */
 @Service
 public class SearchServiceImpl implements SearchService {
 
     private static final Logger log = LoggerFactory.getLogger(SearchServiceImpl.class);
     private static final DateTimeFormatter DISPLAY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+
+    static final long MIN_DOMESTIC_LAYOVER_MINUTES = 45;
+    static final long MIN_INTERNATIONAL_LAYOVER_MINUTES = 90;
+    static final long MAX_LAYOVER_MINUTES = 360; // 6 hours
 
     @Value("${skypath.search.max-stops:2}")
     private int defaultMaxStops;
@@ -68,13 +82,53 @@ public class SearchServiceImpl implements SearchService {
         }
 
         List<Itinerary> results = new ArrayList<>();
-        Set<String> visited = new HashSet<>();
-        visited.add(origin);
 
-        // First-leg flights must depart on the search date.
-        // Connecting flights may depart up to the next day (overnight connections).
-        explore(origin, destination, date, date, visited,
-                new ArrayList<>(), null, maxStops, domesticCountry, results);
+        // Step 1: Fetch all flights from origin on the search date (single data call)
+        List<Flight> allOriginFlights = dataSource.getFlightsFrom(origin, date);
+
+        // Step 2: Extract direct flights to destination
+        List<Flight> directFlights = allOriginFlights.stream()
+                .filter(f -> f.getDestination().equals(destination))
+                .toList();
+
+        for (Flight direct : directFlights) {
+            results.add(buildItinerary(List.of(direct)));
+        }
+
+        // Step 3: If stops allowed, run DFS on remaining flights (to intermediate
+        // airports)
+        if (maxStops > 0) {
+            List<Flight> intermediateFlights = allOriginFlights.stream()
+                    .filter(f -> !f.getDestination().equals(destination))
+                    .toList();
+
+            // Group by destination to avoid processing the same intermediate twice
+            Map<String, List<Flight>> byDestination = intermediateFlights.stream()
+                    .collect(Collectors.groupingBy(Flight::getDestination));
+
+            Set<String> visited = new HashSet<>();
+            visited.add(origin);
+
+            for (Map.Entry<String, List<Flight>> entry : byDestination.entrySet()) {
+                String nextAirport = entry.getKey();
+
+                // Domestic constraint: skip foreign intermediates
+                if (domesticCountry != null && !isInCountry(nextAirport, domesticCountry)) {
+                    continue;
+                }
+
+                visited.add(nextAirport);
+
+                for (Flight flight : entry.getValue()) {
+                    List<Flight> path = new ArrayList<>();
+                    path.add(flight);
+                    explore(destination, visited, path, flight,
+                            maxStops - 1, isDomestic, domesticCountry, results);
+                }
+
+                visited.remove(nextAirport);
+            }
+        }
 
         // Sort by total travel duration (shortest first)
         results.sort(Comparator.comparingLong(Itinerary::totalDurationMinutes));
@@ -84,34 +138,38 @@ public class SearchServiceImpl implements SearchService {
     }
 
     /**
-     * Recursive DFS exploration.
-     * 
-     * At each node:
-     * 1. Try direct flights to destination (always, regardless of remaining stops)
-     * 2. If stops remain, recurse through intermediates
+     * Recursive DFS that fetches connecting flights using a precise UTC time
+     * window.
      *
-     * @param current         current airport code
      * @param destination     target destination code
-     * @param fromDate        date range start
-     * @param toDate          date range end
      * @param visited         set of already-visited airport codes (prevents cycles)
      * @param path            current path of flights
-     * @param lastFlight      the last flight in the current path (null at root)
+     * @param lastFlight      the last flight in the current path
      * @param remainingStops  how many more intermediate stops are allowed
-     * @param domesticCountry if non-null, only intermediate airports in this
-     *                        country are considered
+     * @param isDomestic      whether the overall search is domestic
+     * @param domesticCountry if non-null, skip foreign intermediate airports
      * @param results         accumulator for valid itineraries
      */
-    private void explore(String current, String destination,
-            LocalDate fromDate, LocalDate toDate,
-            Set<String> visited, List<Flight> path,
-            Flight lastFlight, int remainingStops,
+    private void explore(String destination, Set<String> visited,
+            List<Flight> path, Flight lastFlight,
+            int remainingStops, boolean isDomestic,
             String domesticCountry, List<Itinerary> results) {
 
-        // Step 1: Try direct flights from current → destination
-        List<Flight> directFlights = dataSource.getDirectFlights(current, destination, fromDate, toDate);
-        for (Flight flight : directFlights) {
-            if (lastFlight != null && !connectionValidator.isValidConnection(lastFlight, flight)) {
+        String currentAirport = lastFlight.getDestination();
+
+        // Compute the valid connection time window based on domestic/international
+        long minLayover = isDomestic ? MIN_DOMESTIC_LAYOVER_MINUTES : MIN_INTERNATIONAL_LAYOVER_MINUTES;
+        ZonedDateTime arrivalUtc = lastFlight.getArrivalUtc();
+        ZonedDateTime earliestDeparture = arrivalUtc.plusMinutes(minLayover);
+        ZonedDateTime latestDeparture = arrivalUtc.plusMinutes(MAX_LAYOVER_MINUTES);
+
+        // Fetch only connecting flights within the valid layover window
+        List<Flight> connectingFlights = dataSource.getConnectingFlights(
+                currentAirport, earliestDeparture, latestDeparture);
+
+        // Step 1: Try direct connections to the destination
+        for (Flight flight : connectingFlights) {
+            if (!flight.getDestination().equals(destination)) {
                 continue;
             }
             List<Flight> completePath = new ArrayList<>(path);
@@ -125,49 +183,42 @@ public class SearchServiceImpl implements SearchService {
         }
 
         // Step 3: Recurse through intermediates
-        List<Flight> departingFlights = dataSource.getFlightsFrom(current, fromDate, toDate);
-
-        // Group by destination to query each intermediate airport only once
-        Map<String, List<Flight>> intermediates = departingFlights.stream()
+        Map<String, List<Flight>> intermediates = connectingFlights.stream()
+                .filter(f -> !f.getDestination().equals(destination))
                 .collect(Collectors.groupingBy(Flight::getDestination));
 
         for (Map.Entry<String, List<Flight>> entry : intermediates.entrySet()) {
             String nextAirport = entry.getKey();
 
-            // Skip destinations already handled or visited
-            if (nextAirport.equals(destination))
-                continue; // already handled in step 1
-            if (visited.contains(nextAirport))
-                continue; // no circular routes
+            if (visited.contains(nextAirport)) {
+                continue;
+            }
 
-            // For domestic searches, skip intermediate airports outside the domestic
-            // country
-            if (domesticCountry != null) {
-                Airport nextAirportObj = dataSource.getAirport(nextAirport).orElse(null);
-                if (nextAirportObj == null || !domesticCountry.equals(nextAirportObj.country())) {
-                    continue;
-                }
+            // Domestic constraint: skip foreign intermediates
+            if (domesticCountry != null && !isInCountry(nextAirport, domesticCountry)) {
+                continue;
             }
 
             visited.add(nextAirport);
 
             for (Flight flight : entry.getValue()) {
-                // Validate connection with previous flight
-                if (lastFlight != null && !connectionValidator.isValidConnection(lastFlight, flight)) {
-                    continue;
-                }
-
                 List<Flight> newPath = new ArrayList<>(path);
                 newPath.add(flight);
-
-                // Connecting flights can depart on the arrival date or the next day
-                LocalDate connectionDate = flight.getArrivalTime().toLocalDate();
-                explore(nextAirport, destination, connectionDate, connectionDate.plusDays(1), visited,
-                        newPath, flight, remainingStops - 1, domesticCountry, results);
+                explore(destination, visited, newPath, flight,
+                        remainingStops - 1, isDomestic, domesticCountry, results);
             }
 
-            visited.remove(nextAirport); // backtrack to allow other branches
+            visited.remove(nextAirport);
         }
+    }
+
+    /**
+     * Check if an airport is in the given country.
+     */
+    private boolean isInCountry(String airportCode, String country) {
+        return dataSource.getAirport(airportCode)
+                .map(a -> country.equals(a.country()))
+                .orElse(false);
     }
 
     /**
