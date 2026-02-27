@@ -4,7 +4,7 @@ import com.skypath.datasource.FlightDataSource;
 import com.skypath.dto.SearchResponse;
 import com.skypath.exception.InvalidSearchException;
 import com.skypath.model.Itinerary;
-import com.skypath.service.SearchService;
+import com.skypath.service.FlightSearchOrchestrator;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,11 +19,11 @@ import java.util.List;
 @RequestMapping("/api/flights")
 public class FlightSearchController {
 
-    private final SearchService searchService;
+    private final FlightSearchOrchestrator searchOrchestrator;
     private final FlightDataSource dataSource;
 
-    public FlightSearchController(SearchService searchService, FlightDataSource dataSource) {
-        this.searchService = searchService;
+    public FlightSearchController(FlightSearchOrchestrator searchOrchestrator, FlightDataSource dataSource) {
+        this.searchOrchestrator = searchOrchestrator;
         this.dataSource = dataSource;
     }
 
@@ -49,7 +49,7 @@ public class FlightSearchController {
         validateSearchParams(origin, destination, date);
 
         LocalDate searchDate = LocalDate.parse(date);
-        List<Itinerary> itineraries = searchService.search(origin, destination, searchDate);
+        List<Itinerary> itineraries = searchOrchestrator.search(origin, destination, searchDate);
 
         SearchResponse response = new SearchResponse(
                 origin,
