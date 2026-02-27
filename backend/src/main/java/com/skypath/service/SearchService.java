@@ -34,4 +34,18 @@ public interface SearchService {
      * @return sorted list of valid itineraries
      */
     List<Itinerary> search(String origin, String destination, LocalDate date, int maxStops);
+
+    /**
+     * Search for valid itineraries with domestic/international constraint.
+     * When isDomestic is true, only intermediate airports within the same
+     * country as the origin are considered during the search.
+     *
+     * @param origin      IATA code
+     * @param destination IATA code
+     * @param date        departure date
+     * @param maxStops    maximum number of intermediate stops allowed
+     * @param isDomestic  if true, restrict to same-country intermediate airports
+     * @return sorted list of valid itineraries
+     */
+    List<Itinerary> search(String origin, String destination, LocalDate date, int maxStops, boolean isDomestic);
 }
