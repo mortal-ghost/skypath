@@ -1,0 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap');
+
+:root {
+  /* Colors — Deep space dark theme */
+  --bg-primary: #0a0e1a;
+  --bg-secondary: #0f1525;
+  --surface-glass: rgba(15, 23, 42, 0.7);
+  --surface-elevated: #151d30;
+  --surface-input: rgba(30, 41, 59, 0.6);
+  --surface-hover: rgba(56, 72, 107, 0.4);
+  --surface-badge: rgba(56, 72, 107, 0.3);
+
+  --border: rgba(71, 85, 120, 0.35);
+  --border-hover: rgba(99, 120, 170, 0.5);
+
+  --text-primary: #eef2ff;
+  --text-secondary: #94a3c8;
+  --text-muted: #64748b;
+
+  --accent: #6366f1;
+  --accent-secondary: #8b5cf6;
+  --accent-glow: rgba(99, 102, 241, 0.25);
+  --accent-gradient: linear-gradient(135deg, #6366f1, #8b5cf6);
+
+  --success: #34d399;
+  --warning: #fb923c;
+  --error: #f87171;
+
+  /* Typography */
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Outfit', 'Inter', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, rgba(139, 92, 246, 0.06) 0%, transparent 50%),
+    var(--bg-primary);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
