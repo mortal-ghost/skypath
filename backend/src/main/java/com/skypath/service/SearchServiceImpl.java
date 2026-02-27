@@ -71,11 +71,9 @@ public class SearchServiceImpl implements SearchService {
         Set<String> visited = new HashSet<>();
         visited.add(origin);
 
-        // Date range covers the search date and next day (for overnight connections)
-        LocalDate fromDate = date;
-        LocalDate toDate = date.plusDays(1);
-
-        explore(origin, destination, fromDate, toDate, visited,
+        // First-leg flights must depart on the search date.
+        // Connecting flights may depart up to the next day (overnight connections).
+        explore(origin, destination, date, date, visited,
                 new ArrayList<>(), null, maxStops, domesticCountry, results);
 
         // Sort by total travel duration (shortest first)
@@ -162,7 +160,9 @@ public class SearchServiceImpl implements SearchService {
                 List<Flight> newPath = new ArrayList<>(path);
                 newPath.add(flight);
 
-                explore(nextAirport, destination, fromDate, toDate, visited,
+                // Connecting flights can depart on the arrival date or the next day
+                LocalDate connectionDate = flight.getArrivalTime().toLocalDate();
+                explore(nextAirport, destination, connectionDate, connectionDate.plusDays(1), visited,
                         newPath, flight, remainingStops - 1, domesticCountry, results);
             }
 
