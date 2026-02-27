@@ -51,7 +51,21 @@ public class SearchServiceImpl implements SearchService {
 
     @Override
     public List<Itinerary> search(String origin, String destination, LocalDate date, int maxStops) {
-        log.info("Searching {} → {} on {} (max stops: {})", origin, destination, date, maxStops);
+        return search(origin, destination, date, maxStops, false);
+    }
+
+    @Override
+    public List<Itinerary> search(String origin, String destination, LocalDate date, int maxStops, boolean isDomestic) {
+        log.info("Searching {} → {} on {} (max stops: {}, domestic: {})",
+                origin, destination, date, maxStops, isDomestic);
+
+        // Resolve the country constraint for domestic searches
+        String domesticCountry = null;
+        if (isDomestic) {
+            domesticCountry = dataSource.getAirport(origin)
+                    .map(Airport::country)
+                    .orElse(null);
+        }
 
         List<Itinerary> results = new ArrayList<>();
         Set<String> visited = new HashSet<>();
@@ -62,7 +76,7 @@ public class SearchServiceImpl implements SearchService {
         LocalDate toDate = date.plusDays(1);
 
         explore(origin, destination, fromDate, toDate, visited,
-                new ArrayList<>(), null, maxStops, results);
+                new ArrayList<>(), null, maxStops, domesticCountry, results);
 
         // Sort by total travel duration (shortest first)
         results.sort(Comparator.comparingLong(Itinerary::totalDurationMinutes));
@@ -78,21 +92,23 @@ public class SearchServiceImpl implements SearchService {
      * 1. Try direct flights to destination (always, regardless of remaining stops)
      * 2. If stops remain, recurse through intermediates
      *
-     * @param current        current airport code
-     * @param destination    target destination code
-     * @param fromDate       date range start
-     * @param toDate         date range end
-     * @param visited        set of already-visited airport codes (prevents cycles)
-     * @param path           current path of flights
-     * @param lastFlight     the last flight in the current path (null at root)
-     * @param remainingStops how many more intermediate stops are allowed
-     * @param results        accumulator for valid itineraries
+     * @param current         current airport code
+     * @param destination     target destination code
+     * @param fromDate        date range start
+     * @param toDate          date range end
+     * @param visited         set of already-visited airport codes (prevents cycles)
+     * @param path            current path of flights
+     * @param lastFlight      the last flight in the current path (null at root)
+     * @param remainingStops  how many more intermediate stops are allowed
+     * @param domesticCountry if non-null, only intermediate airports in this
+     *                        country are considered
+     * @param results         accumulator for valid itineraries
      */
     private void explore(String current, String destination,
             LocalDate fromDate, LocalDate toDate,
             Set<String> visited, List<Flight> path,
             Flight lastFlight, int remainingStops,
-            List<Itinerary> results) {
+            String domesticCountry, List<Itinerary> results) {
 
         // Step 1: Try direct flights from current → destination
         List<Flight> directFlights = dataSource.getDirectFlights(current, destination, fromDate, toDate);
@@ -126,6 +142,15 @@ public class SearchServiceImpl implements SearchService {
             if (visited.contains(nextAirport))
                 continue; // no circular routes
 
+            // For domestic searches, skip intermediate airports outside the domestic
+            // country
+            if (domesticCountry != null) {
+                Airport nextAirportObj = dataSource.getAirport(nextAirport).orElse(null);
+                if (nextAirportObj == null || !domesticCountry.equals(nextAirportObj.country())) {
+                    continue;
+                }
+            }
+
             visited.add(nextAirport);
 
             for (Flight flight : entry.getValue()) {
@@ -138,7 +163,7 @@ public class SearchServiceImpl implements SearchService {
                 newPath.add(flight);
 
                 explore(nextAirport, destination, fromDate, toDate, visited,
-                        newPath, flight, remainingStops - 1, results);
+                        newPath, flight, remainingStops - 1, domesticCountry, results);
             }
 
             visited.remove(nextAirport); // backtrack to allow other branches
