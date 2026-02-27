@@ -1,0 +1,12 @@
+# Maven
+/target
+
+# IDE
+.idea
+.vscode
+
+# Docker
+.docker
+
+# Other
+.DS_Store
